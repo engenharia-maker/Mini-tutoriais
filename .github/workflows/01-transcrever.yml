@@ -1,0 +1,61 @@
+name: 01 - Gerar legendas (Whisper)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da Release privada que contém o vídeo (ex.: tutorial-001)'
+        type: string
+        required: true
+      modelo:
+        description: 'Modelo de transcrição; turbo é mais preciso e pode demorar'
+        type: choice
+        required: true
+        default: large-v3-turbo
+        options:
+          - large-v3-turbo
+          - medium
+          - small
+
+permissions:
+  contents: read
+
+jobs:
+  transcrever:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Obter projeto
+        uses: actions/checkout@v4
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Instalar transcrição e FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Baixar vídeo da Release privada
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python scripts/baixar_release.py --tag "$RELEASE_TAG" --dir entrada --modo transcrever
+      - name: Transcrever para SRT
+        env:
+          WHISPER_MODEL: ${{ inputs.modelo }}
+        run: |
+          mkdir -p saida
+          VIDEO=$(find entrada -maxdepth 1 -type f -name 'original.*' -print -quit)
+          test -n "$VIDEO"
+          python scripts/processar.py transcrever --video "$VIDEO" --saida saida/legendas_automaticas.srt --modelo "$WHISPER_MODEL"
+          cp index.html saida/index.html
+      - name: Entregar SRT e editor para revisão
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-legendas-para-revisar
+          path: saida/
+          retention-days: 7
+          if-no-files-found: error

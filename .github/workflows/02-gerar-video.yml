@@ -1,0 +1,63 @@
+name: 02 - Gerar vídeo institucional MP4
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Mesma tag da Release com o vídeo e legendas_revisadas.srt'
+        required: true
+        type: string
+      equipamento:
+        description: 'Nome para capa (ex.: Cardioversor Instramed CardioMax)'
+        required: true
+        type: string
+      tema:
+        description: 'Tema para capa (ex.: Autoteste e verificação)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  montar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Obter projeto
+        uses: actions/checkout@v4
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Instalar ferramentas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install --upgrade pip
+          pip install 'Pillow>=11,<13'
+      - name: Baixar vídeo e SRT revisado da Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python scripts/baixar_release.py --tag "$RELEASE_TAG" --dir entrada --modo final
+      - name: Montar capa, legendas e encerramento
+        env:
+          EQUIPAMENTO: ${{ inputs.equipamento }}
+          TEMA: ${{ inputs.tema }}
+        run: |
+          mkdir -p saida
+          VIDEO=$(find entrada -maxdepth 1 -type f -name 'original.*' -print -quit)
+          test -n "$VIDEO"
+          python scripts/processar.py renderizar \
+            --video "$VIDEO" --srt entrada/legendas_revisadas.srt \
+            --equipamento "$EQUIPAMENTO" --tema "$TEMA" \
+            --saida saida/minitutorial_institucional.mp4
+      - name: Entregar MP4 pronto
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-video-final
+          path: saida/minitutorial_institucional.mp4
+          retention-days: 7
+          if-no-files-found: error
